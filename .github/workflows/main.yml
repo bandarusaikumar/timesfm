@@ -26,3 +26,41 @@ jobs:
           uv pip install build ".[torch,flax]"
       - name: Build package
         run: uv run python -m build
+
+  test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.10', '3.11', '3.12']
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install uv
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+      - name: Create virtual environment
+        env:
+          PYTHON_VERSION: ${{ matrix.python-version }}
+        run: uv venv --python "$PYTHON_VERSION"
+      - name: Install package and test dependencies
+        # CPU-only torch keeps the install small; the tests do not need a GPU
+        # or any downloaded checkpoints.
+        run: |
+          uv pip install torch --index-url https://download.pytorch.org/whl/cpu
+          uv pip install -e ".[torch]" pytest
+      - name: Run TimesFM 3.0 tests
+        # MLX tests skip themselves when mlx is not installed (non-macOS).
+        run: .venv/bin/python -m pytest src/timesfm3/
+      - name: Run TimesFM 2.5 tests
+        # tests/test_model_loading.py imports the Flax backend, which needs the
+        # [flax] extra, so it is not part of this torch-only job.
+        run: .venv/bin/python -m pytest tests/ --ignore=tests/test_model_loading.py
